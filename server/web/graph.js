@@ -73,12 +73,26 @@ let activeTheme = THEMES.gruvbox;
 
 // Visual settings — defaults match config.Defaults(); overridden by /api/config response
 const settings = {
-  fileRadius:  5,
-  folderBase:  8,
-  folderScale: 2.5,
-  edgeWidth:   1.0,
-  labelZoom:   2.0,
+  fileRadius:      5,
+  folderBase:      8,
+  folderScale:     2.5,
+  edgeWidth:       1.0,
+  labelZoom:       2.0,
+  // Physics defaults — overridden by /api/config
+  chargeStrength:  -100,
+  chargeMax:       400,
+  linkDistance:     55,
+  linkStrength:    0.4,
+  centerStrength:  0.05,
+  collideStrength: 0.8,
+  alphaDecay:      0.02,
+  velocityDecay:   0.35,
+  // Layout
+  layout:          'force',
 };
+
+// Snapshot of initial defaults for Reset button
+const defaultSettings = Object.assign({}, settings);
 
 function applyTheme(name) {
   activeTheme = THEMES[name] || THEMES.gruvbox;
@@ -107,6 +121,7 @@ let hoveredNode = null;
 let dragNode = null;
 let rafPending = false;
 const adjacency = new Map();
+let nodeQuadtree = null;
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('graph');
@@ -126,11 +141,19 @@ resize();
 
 // ─── Node visuals ─────────────────────────────────────────────────────────────
 function nodeRadius(n) {
+  if (n._r !== undefined) return n._r;
   if (n.type === 'folder') {
     const base = settings.folderBase;
     return Math.max(base + 2, base + Math.sqrt(n.children || 0) * settings.folderScale);
   }
   return settings.fileRadius;
+}
+
+function cacheRadii() {
+  for (const n of graphData.nodes) {
+    n._r = undefined; // clear so nodeRadius computes fresh
+    n._r = nodeRadius(n);
+  }
 }
 
 function nodeColor(n) {
@@ -146,20 +169,23 @@ function screenToSim(sx, sy) {
 
 function findNodeAt(sx, sy) {
   const [wx, wy] = screenToSim(sx, sy);
-  let closest = null;
-  let minDist2 = Infinity;
-  for (const n of graphData.nodes) {
-    if (n.x === undefined) continue;
-    const r = nodeRadius(n) + 4;
-    const dx = n.x - wx;
-    const dy = n.y - wy;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < r * r && d2 < minDist2) {
-      minDist2 = d2;
-      closest = n;
-    }
-  }
-  return closest;
+  if (!nodeQuadtree) return null;
+  // d3.quadtree.find with a search radius
+  const maxR = settings.folderBase + 20; // generous search radius
+  const found = nodeQuadtree.find(wx, wy, maxR);
+  if (!found) return null;
+  const r = (found._r || nodeRadius(found)) + 4;
+  const dx = found.x - wx;
+  const dy = found.y - wy;
+  if (dx * dx + dy * dy < r * r) return found;
+  return null;
+}
+
+function rebuildQuadtree() {
+  nodeQuadtree = d3.quadtree()
+    .x(d => d.x)
+    .y(d => d.y)
+    .addAll(graphData.nodes.filter(n => n.x !== undefined));
 }
 
 // ─── Adjacency ────────────────────────────────────────────────────────────────
@@ -180,6 +206,194 @@ function isConnected(a, b) {
   return nbrs ? nbrs.has(b.id) : false;
 }
 
+// ─── Spanning Tree (Kruskal's) ────────────────────────────────────────────────
+let spanningTreeEdges = null; // Set of "srcId|tgtId" keys when active
+
+function computeSpanningTree() {
+  // Union-Find
+  const parent = new Map();
+  const rank = new Map();
+  function find(x) {
+    if (parent.get(x) !== x) parent.set(x, find(parent.get(x)));
+    return parent.get(x);
+  }
+  function union(a, b) {
+    const ra = find(a), rb = find(b);
+    if (ra === rb) return false;
+    if (rank.get(ra) < rank.get(rb)) parent.set(ra, rb);
+    else if (rank.get(ra) > rank.get(rb)) parent.set(rb, ra);
+    else { parent.set(rb, ra); rank.set(ra, rank.get(ra) + 1); }
+    return true;
+  }
+  for (const n of graphData.nodes) {
+    parent.set(n.id, n.id);
+    rank.set(n.id, 0);
+  }
+
+  const treeEdges = new Set();
+  for (const e of graphData.edges) {
+    const sid = typeof e.source === 'object' ? e.source.id : e.source;
+    const tid = typeof e.target === 'object' ? e.target.id : e.target;
+    if (union(sid, tid)) {
+      treeEdges.add(sid + '|' + tid);
+      treeEdges.add(tid + '|' + sid);
+    }
+  }
+  return treeEdges;
+}
+
+function isSpanningTreeEdge(e) {
+  if (!spanningTreeEdges) return false;
+  const sid = typeof e.source === 'object' ? e.source.id : e.source;
+  const tid = typeof e.target === 'object' ? e.target.id : e.target;
+  return spanningTreeEdges.has(sid + '|' + tid);
+}
+
+// ─── Layout algorithms ───────────────────────────────────────────────────────
+function layoutRadial() {
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const nodeMap = new Map();
+  for (const n of graphData.nodes) nodeMap.set(n.id, n);
+
+  // BFS from root (depth 0 node)
+  const root = graphData.nodes.find(n => n.depth === 0) || graphData.nodes[0];
+  const visited = new Set();
+  const levels = []; // levels[depth] = [nodes...]
+  const queue = [root];
+  visited.add(root.id);
+
+  while (queue.length > 0) {
+    const node = queue.shift();
+    const d = node.depth || 0;
+    if (!levels[d]) levels[d] = [];
+    levels[d].push(node);
+    const nbrs = adjacency.get(node.id);
+    if (nbrs) {
+      for (const nid of nbrs) {
+        if (!visited.has(nid)) {
+          visited.add(nid);
+          const child = nodeMap.get(nid);
+          if (child) queue.push(child);
+        }
+      }
+    }
+  }
+  // Add any unvisited nodes to their depth level
+  for (const n of graphData.nodes) {
+    if (!visited.has(n.id)) {
+      const d = n.depth || 0;
+      if (!levels[d]) levels[d] = [];
+      levels[d].push(n);
+    }
+  }
+
+  const ringSpacing = 80;
+  for (let d = 0; d < levels.length; d++) {
+    if (!levels[d]) continue;
+    if (d === 0) {
+      for (const n of levels[d]) { n.fx = cx; n.fy = cy; }
+      continue;
+    }
+    const r = d * ringSpacing;
+    const count = levels[d].length;
+    for (let i = 0; i < count; i++) {
+      const angle = (2 * Math.PI * i) / count - Math.PI / 2;
+      levels[d][i].fx = cx + r * Math.cos(angle);
+      levels[d][i].fy = cy + r * Math.sin(angle);
+    }
+  }
+}
+
+function layoutTree() {
+  const cx = canvas.width / 2;
+  const topY = 80;
+  const levelHeight = 70;
+  const nodeMap = new Map();
+  for (const n of graphData.nodes) nodeMap.set(n.id, n);
+
+  const root = graphData.nodes.find(n => n.depth === 0) || graphData.nodes[0];
+  const visited = new Set();
+  const levels = [];
+  const queue = [root];
+  visited.add(root.id);
+
+  while (queue.length > 0) {
+    const node = queue.shift();
+    const d = node.depth || 0;
+    if (!levels[d]) levels[d] = [];
+    levels[d].push(node);
+    const nbrs = adjacency.get(node.id);
+    if (nbrs) {
+      for (const nid of nbrs) {
+        if (!visited.has(nid)) {
+          visited.add(nid);
+          const child = nodeMap.get(nid);
+          if (child) queue.push(child);
+        }
+      }
+    }
+  }
+  for (const n of graphData.nodes) {
+    if (!visited.has(n.id)) {
+      const d = n.depth || 0;
+      if (!levels[d]) levels[d] = [];
+      levels[d].push(n);
+    }
+  }
+
+  for (let d = 0; d < levels.length; d++) {
+    if (!levels[d]) continue;
+    const count = levels[d].length;
+    const totalWidth = Math.max(count * 30, canvas.width * 0.8);
+    const startX = cx - totalWidth / 2;
+    const spacing = count > 1 ? totalWidth / (count - 1) : 0;
+    for (let i = 0; i < count; i++) {
+      levels[d][i].fx = count > 1 ? startX + spacing * i : cx;
+      levels[d][i].fy = topY + d * levelHeight;
+    }
+  }
+}
+
+function clearPinnedPositions() {
+  for (const n of graphData.nodes) {
+    n.fx = null;
+    n.fy = null;
+  }
+}
+
+function applyLayout(name) {
+  settings.layout = name;
+  if (name === 'radial') {
+    if (simulation) simulation.stop();
+    layoutRadial();
+    // Copy pinned positions to actual positions for immediate render
+    for (const n of graphData.nodes) {
+      if (n.fx != null) n.x = n.fx;
+      if (n.fy != null) n.y = n.fy;
+    }
+    rebuildQuadtree();
+    scheduleRender();
+  } else if (name === 'tree') {
+    if (simulation) simulation.stop();
+    layoutTree();
+    for (const n of graphData.nodes) {
+      if (n.fx != null) n.x = n.fx;
+      if (n.fy != null) n.y = n.fy;
+    }
+    rebuildQuadtree();
+    scheduleRender();
+  } else {
+    // force layout — clear pins, restart simulation
+    clearPinnedPositions();
+    if (simulation) simulation.alpha(0.5).restart();
+  }
+  // Update layout pills UI
+  document.querySelectorAll('.layout-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.layout === name);
+  });
+}
+
 // ─── Simulation ───────────────────────────────────────────────────────────────
 function setupSimulation() {
   const cx = canvas.width / 2;
@@ -190,23 +404,53 @@ function setupSimulation() {
     n.y = cy + (Math.random() - 0.5) * 30;
   }
 
+  cacheRadii();
+
   simulation = d3.forceSimulation(graphData.nodes)
     .force('link', d3.forceLink(graphData.edges)
       .id(d => d.id)
-      .distance(d => 55 + nodeRadius(d.source) + nodeRadius(d.target))
-      .strength(0.4))
+      .distance(d => settings.linkDistance + (d.source._r || 0) + (d.target._r || 0))
+      .strength(settings.linkStrength))
     .force('charge', d3.forceManyBody()
-      .strength(d => -100 - nodeRadius(d) * 14)
-      .distanceMax(400))
-    .force('center', d3.forceCenter(cx, cy).strength(0.05))
+      .strength(d => settings.chargeStrength - (d._r || 0) * 14)
+      .distanceMax(settings.chargeMax))
+    .force('center', d3.forceCenter(cx, cy).strength(settings.centerStrength))
     .force('collide', d3.forceCollide()
-      .radius(d => nodeRadius(d) + 5)
-      .strength(0.8))
-    .alphaDecay(0.02)
-    .velocityDecay(0.35)
-    .on('tick', scheduleRender);
+      .radius(d => (d._r || 0) + 5)
+      .strength(settings.collideStrength))
+    .alphaDecay(settings.alphaDecay)
+    .velocityDecay(settings.velocityDecay)
+    .on('tick', () => {
+      rebuildQuadtree();
+      scheduleRender();
+    });
 
   buildAdjacency();
+}
+
+function updateSimulationParams() {
+  if (!simulation) return;
+  const linkForce = simulation.force('link');
+  if (linkForce) {
+    linkForce.distance(d => settings.linkDistance + (d.source._r || 0) + (d.target._r || 0));
+    linkForce.strength(settings.linkStrength);
+  }
+  const chargeForce = simulation.force('charge');
+  if (chargeForce) {
+    chargeForce.strength(d => settings.chargeStrength - (d._r || 0) * 14);
+    chargeForce.distanceMax(settings.chargeMax);
+  }
+  const centerForce = simulation.force('center');
+  if (centerForce) {
+    centerForce.strength(settings.centerStrength);
+  }
+  const collideForce = simulation.force('collide');
+  if (collideForce) {
+    collideForce.strength(settings.collideStrength);
+  }
+  simulation.alphaDecay(settings.alphaDecay);
+  simulation.velocityDecay(settings.velocityDecay);
+  simulation.alpha(0.3).restart();
 }
 
 // ─── Render loop ──────────────────────────────────────────────────────────────
@@ -231,34 +475,107 @@ function render() {
   const k = transform.k;
   const ew = settings.edgeWidth;
   const hasHover = hoveredNode !== null;
+  const nodeCount = graphData.nodes.length;
+  const showSpanning = !!spanningTreeEdges;
 
-  // ── Edges ──────────────────────────────────────────────────────────────────
-  for (const e of graphData.edges) {
-    const src = e.source;
-    const tgt = e.target;
-    if (src.x === undefined || tgt.x === undefined) continue;
+  // ── Viewport culling bounds (in simulation space) ─────────────────────────
+  const pad = 50 / k;
+  const vx0 = -transform.x / k - pad;
+  const vy0 = -transform.y / k - pad;
+  const vx1 = (W - transform.x) / k + pad;
+  const vy1 = (H - transform.y) / k + pad;
 
-    const highlighted = hasHover && (src === hoveredNode || tgt === hoveredNode);
+  function inView(x, y) {
+    return x >= vx0 && x <= vx1 && y >= vy0 && y <= vy1;
+  }
+
+  function edgeInView(sx, sy, tx, ty) {
+    // Check if either endpoint or the bounding box overlaps viewport
+    if (inView(sx, sy) || inView(tx, ty)) return true;
+    const minx = Math.min(sx, tx), maxx = Math.max(sx, tx);
+    const miny = Math.min(sy, ty), maxy = Math.max(sy, ty);
+    return minx <= vx1 && maxx >= vx0 && miny <= vy1 && maxy >= vy0;
+  }
+
+  // ── Edges (batched) ───────────────────────────────────────────────────────
+  if (hasHover) {
+    // Two passes: dim edges first, highlighted on top
+    ctx.beginPath();
+    ctx.strokeStyle = activeTheme.edgeDim;
+    ctx.lineWidth = (0.5 * ew) / k;
+    for (const e of graphData.edges) {
+      const src = e.source, tgt = e.target;
+      if (src.x === undefined || tgt.x === undefined) continue;
+      if (!edgeInView(src.x, src.y, tgt.x, tgt.y)) continue;
+      if (src === hoveredNode || tgt === hoveredNode) continue;
+      ctx.moveTo(src.x, src.y);
+      ctx.lineTo(tgt.x, tgt.y);
+    }
+    ctx.stroke();
 
     ctx.beginPath();
-    ctx.moveTo(src.x, src.y);
-    ctx.lineTo(tgt.x, tgt.y);
+    ctx.strokeStyle = activeTheme.edgeHover;
+    ctx.lineWidth = (1.5 * ew) / k;
+    for (const e of graphData.edges) {
+      const src = e.source, tgt = e.target;
+      if (src.x === undefined || tgt.x === undefined) continue;
+      if (src !== hoveredNode && tgt !== hoveredNode) continue;
+      ctx.moveTo(src.x, src.y);
+      ctx.lineTo(tgt.x, tgt.y);
+    }
+    ctx.stroke();
+  } else if (showSpanning) {
+    // Non-tree edges (dim)
+    ctx.beginPath();
+    ctx.strokeStyle = activeTheme.edgeDim;
+    ctx.lineWidth = (0.5 * ew) / k;
+    for (const e of graphData.edges) {
+      const src = e.source, tgt = e.target;
+      if (src.x === undefined || tgt.x === undefined) continue;
+      if (!edgeInView(src.x, src.y, tgt.x, tgt.y)) continue;
+      if (isSpanningTreeEdge(e)) continue;
+      ctx.moveTo(src.x, src.y);
+      ctx.lineTo(tgt.x, tgt.y);
+    }
+    ctx.stroke();
 
-    if (hasHover) {
-      ctx.strokeStyle = highlighted ? activeTheme.edgeHover : activeTheme.edgeDim;
-      ctx.lineWidth = highlighted ? (1.5 * ew) / k : (0.5 * ew) / k;
-    } else {
-      ctx.strokeStyle = activeTheme.edge;
-      ctx.lineWidth = (0.8 * ew) / k;
+    // Tree edges (accent, thicker)
+    ctx.beginPath();
+    ctx.strokeStyle = activeTheme.accent;
+    ctx.lineWidth = (2.0 * ew) / k;
+    for (const e of graphData.edges) {
+      const src = e.source, tgt = e.target;
+      if (src.x === undefined || tgt.x === undefined) continue;
+      if (!edgeInView(src.x, src.y, tgt.x, tgt.y)) continue;
+      if (!isSpanningTreeEdge(e)) continue;
+      ctx.moveTo(src.x, src.y);
+      ctx.lineTo(tgt.x, tgt.y);
+    }
+    ctx.stroke();
+  } else {
+    // Single batch — all edges same style
+    ctx.beginPath();
+    ctx.strokeStyle = activeTheme.edge;
+    ctx.lineWidth = (0.8 * ew) / k;
+    for (const e of graphData.edges) {
+      const src = e.source, tgt = e.target;
+      if (src.x === undefined || tgt.x === undefined) continue;
+      if (!edgeInView(src.x, src.y, tgt.x, tgt.y)) continue;
+      ctx.moveTo(src.x, src.y);
+      ctx.lineTo(tgt.x, tgt.y);
     }
     ctx.stroke();
   }
 
   // ── Nodes ──────────────────────────────────────────────────────────────────
+  // Level-of-detail: skip shadowBlur when zoomed out or large graph
+  const skipGlow = k < 0.5 || nodeCount > 2000;
+
   for (const n of graphData.nodes) {
     if (n.x === undefined) continue;
+    if (!inView(n.x, n.y)) continue;
 
-    const r = nodeRadius(n);
+    const r = n._r || nodeRadius(n);
     const color = nodeColor(n);
     const isHover = n === hoveredNode;
     const isNeighbor = hasHover && !isHover && isConnected(n, hoveredNode);
@@ -267,9 +584,12 @@ function render() {
     ctx.beginPath();
     ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
 
-    if (isHover) {
+    if (isHover && !skipGlow) {
       ctx.shadowBlur = 20;
       ctx.shadowColor = color;
+      ctx.fillStyle = color;
+    } else if (isHover) {
+      ctx.shadowBlur = 0;
       ctx.fillStyle = color;
     } else if (isDim) {
       ctx.shadowBlur = 0;
@@ -292,7 +612,8 @@ function render() {
   }
 
   // ── Labels ─────────────────────────────────────────────────────────────────
-  const showAllLabels = k >= settings.labelZoom;
+  // Level-of-detail: cap "show all labels" for very large graphs
+  const showAllLabels = k >= settings.labelZoom && nodeCount < 5000;
   if (hasHover || showAllLabels) {
     const fontSize = Math.max(9, 13 / k);
     ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
@@ -300,10 +621,11 @@ function render() {
 
     for (const n of graphData.nodes) {
       if (n.x === undefined) continue;
+      if (!inView(n.x, n.y)) continue;
       const isHover = n === hoveredNode;
       const isNeighbor = hasHover && isConnected(n, hoveredNode);
       if (!showAllLabels && !isHover && !isNeighbor) continue;
-      const r = nodeRadius(n);
+      const r = n._r || nodeRadius(n);
       const isDimmed = hasHover && !isHover && !isNeighbor;
       ctx.fillStyle = isHover ? activeTheme.label : activeTheme.labelNeighbor;
       ctx.globalAlpha = isDimmed ? 0.2 : 1;
@@ -386,8 +708,11 @@ function onMouseDown(e) {
 
 function onMouseUp() {
   if (dragNode) {
-    dragNode.fx = null;
-    dragNode.fy = null;
+    // For static layouts, keep the pin; for force, release it
+    if (settings.layout === 'force') {
+      dragNode.fx = null;
+      dragNode.fy = null;
+    }
     if (simulation) simulation.alphaTarget(0);
     dragNode = null;
   }
@@ -399,6 +724,74 @@ function onMouseLeave() {
   if (!dragNode) {
     hoveredNode = null;
     scheduleRender();
+  }
+}
+
+// ─── Settings Panel ──────────────────────────────────────────────────────────
+function setupSettingsPanel() {
+  const toggle = document.getElementById('settings-toggle');
+  const panel = document.getElementById('settings-panel');
+  if (!toggle || !panel) return;
+
+  toggle.addEventListener('click', () => {
+    panel.classList.toggle('open');
+    toggle.classList.toggle('open');
+  });
+
+  // Map slider IDs to settings keys
+  const sliderMap = {
+    'slider-charge':   'chargeStrength',
+    'slider-chargemax':'chargeMax',
+    'slider-linkdist': 'linkDistance',
+    'slider-linkstr':  'linkStrength',
+    'slider-center':   'centerStrength',
+    'slider-collide':  'collideStrength',
+    'slider-alpha':    'alphaDecay',
+    'slider-velocity': 'velocityDecay',
+  };
+
+  for (const [id, key] of Object.entries(sliderMap)) {
+    const slider = document.getElementById(id);
+    const display = document.getElementById(id + '-val');
+    if (!slider) continue;
+    // Set initial value from settings
+    slider.value = settings[key];
+    if (display) display.textContent = settings[key];
+
+    slider.addEventListener('input', () => {
+      settings[key] = parseFloat(slider.value);
+      if (display) display.textContent = slider.value;
+      if (settings.layout === 'force') updateSimulationParams();
+    });
+  }
+
+  // Reset button
+  const resetBtn = document.getElementById('settings-reset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      for (const [id, key] of Object.entries(sliderMap)) {
+        settings[key] = defaultSettings[key];
+        const slider = document.getElementById(id);
+        const display = document.getElementById(id + '-val');
+        if (slider) slider.value = settings[key];
+        if (display) display.textContent = settings[key];
+      }
+      if (settings.layout === 'force') updateSimulationParams();
+    });
+  }
+
+  // Layout pills
+  document.querySelectorAll('.layout-pill').forEach(pill => {
+    pill.addEventListener('click', () => applyLayout(pill.dataset.layout));
+  });
+
+  // Spanning tree checkbox
+  const stCheck = document.getElementById('spanning-tree-toggle');
+  if (stCheck) {
+    stCheck.addEventListener('change', () => {
+      spanningTreeEdges = stCheck.checked ? computeSpanningTree() : null;
+      scheduleRender();
+    });
   }
 }
 
@@ -420,13 +813,26 @@ async function init() {
     if (cfgRes.ok) {
       const cfg = await cfgRes.json();
       // Apply visual settings from server config
-      if (cfg.fileRadius  != null) settings.fileRadius  = cfg.fileRadius;
-      if (cfg.folderBase  != null) settings.folderBase  = cfg.folderBase;
-      if (cfg.folderScale != null) settings.folderScale = cfg.folderScale;
-      if (cfg.edgeWidth   != null) settings.edgeWidth   = cfg.edgeWidth;
-      if (cfg.labelZoom   != null) settings.labelZoom   = cfg.labelZoom;
+      if (cfg.fileRadius      != null) settings.fileRadius      = cfg.fileRadius;
+      if (cfg.folderBase      != null) settings.folderBase      = cfg.folderBase;
+      if (cfg.folderScale     != null) settings.folderScale     = cfg.folderScale;
+      if (cfg.edgeWidth       != null) settings.edgeWidth       = cfg.edgeWidth;
+      if (cfg.labelZoom       != null) settings.labelZoom       = cfg.labelZoom;
+      // Physics settings
+      if (cfg.chargeStrength  != null) settings.chargeStrength  = cfg.chargeStrength;
+      if (cfg.chargeMax       != null) settings.chargeMax       = cfg.chargeMax;
+      if (cfg.linkDistance    != null) settings.linkDistance     = cfg.linkDistance;
+      if (cfg.linkStrength    != null) settings.linkStrength    = cfg.linkStrength;
+      if (cfg.centerStrength  != null) settings.centerStrength  = cfg.centerStrength;
+      if (cfg.collideStrength != null) settings.collideStrength = cfg.collideStrength;
+      if (cfg.alphaDecay      != null) settings.alphaDecay      = cfg.alphaDecay;
+      if (cfg.velocityDecay   != null) settings.velocityDecay   = cfg.velocityDecay;
+      if (cfg.layout          != null) settings.layout          = cfg.layout;
       if (cfg.theme) themeName = cfg.theme;
     }
+    // Update defaultSettings snapshot after server config applied
+    Object.assign(defaultSettings, settings);
+
     // sessionStorage overrides server theme only if user switched themes this session
     try { themeName = sessionStorage.getItem('grafux-theme') || themeName; } catch (_) {}
     applyTheme(themeName);
@@ -445,6 +851,13 @@ async function init() {
 
     setupSimulation();
     setupInteractions();
+    setupSettingsPanel();
+
+    // Apply initial layout if not force
+    if (settings.layout !== 'force') {
+      applyLayout(settings.layout);
+    }
+
     scheduleRender();
   } catch (err) {
     console.error('Grafux error:', err);

@@ -102,3 +102,198 @@ html, body {
   user-select: none;
   letter-spacing: 0.03em;
 }
+
+/* Settings toggle button — bottom-right */
+#settings-toggle {
+  position: fixed;
+  bottom: 16px;
+  right: 20px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s;
+  z-index: 10;
+}
+
+#settings-toggle:hover,
+#settings-toggle.open {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+/* Settings panel — slides up from bottom-right */
+#settings-panel {
+  position: fixed;
+  bottom: 56px;
+  right: 20px;
+  width: 220px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#settings-panel.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* Scrollbar styling for the settings panel */
+#settings-panel::-webkit-scrollbar {
+  width: 4px;
+}
+#settings-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+#settings-panel::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.settings-section {
+  margin-bottom: 14px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-heading {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.settings-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  cursor: default;
+}
+
+.settings-label span {
+  float: right;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--text-primary);
+}
+
+.settings-label input[type="range"] {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+
+.settings-label input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.settings-label input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+
+/* Layout pills */
+.layout-pills {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.layout-pill {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 10px;
+  font-weight: 500;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.layout-pill:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.layout-pill.active {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Checkbox styling */
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.settings-check input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Reset button */
+.settings-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 5px 0;
+  font-size: 10px;
+  font-weight: 500;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.settings-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}

@@ -26,6 +26,69 @@
     scroll · zoom &nbsp;|&nbsp; drag · pan &nbsp;|&nbsp; hover · highlight
   </div>
 
+  <!-- Settings toggle button -->
+  <button id="settings-toggle" title="Settings">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="8" cy="8" r="2.5"/>
+      <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.17 3.17l1.42 1.42M11.41 11.41l1.42 1.42M3.17 12.83l1.42-1.42M11.41 4.59l1.42-1.42"/>
+    </svg>
+  </button>
+
+  <!-- Settings panel -->
+  <div id="settings-panel">
+    <div class="settings-section">
+      <div class="settings-heading">Layout</div>
+      <div class="layout-pills">
+        <button class="layout-pill active" data-layout="force">Force</button>
+        <button class="layout-pill" data-layout="radial">Radial</button>
+        <button class="layout-pill" data-layout="tree">Tree</button>
+      </div>
+      <label class="settings-check">
+        <input type="checkbox" id="spanning-tree-toggle">
+        <span>Spanning tree</span>
+      </label>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-heading">Physics</div>
+
+      <label class="settings-label">
+        Charge <span id="slider-charge-val">-100</span>
+        <input type="range" id="slider-charge" min="-500" max="0" step="5">
+      </label>
+      <label class="settings-label">
+        Charge max <span id="slider-chargemax-val">400</span>
+        <input type="range" id="slider-chargemax" min="50" max="1500" step="10">
+      </label>
+      <label class="settings-label">
+        Link dist <span id="slider-linkdist-val">55</span>
+        <input type="range" id="slider-linkdist" min="10" max="200" step="5">
+      </label>
+      <label class="settings-label">
+        Link str <span id="slider-linkstr-val">0.4</span>
+        <input type="range" id="slider-linkstr" min="0" max="2" step="0.05">
+      </label>
+      <label class="settings-label">
+        Center <span id="slider-center-val">0.05</span>
+        <input type="range" id="slider-center" min="0" max="0.5" step="0.01">
+      </label>
+      <label class="settings-label">
+        Collide <span id="slider-collide-val">0.8</span>
+        <input type="range" id="slider-collide" min="0" max="1" step="0.05">
+      </label>
+      <label class="settings-label">
+        Alpha decay <span id="slider-alpha-val">0.02</span>
+        <input type="range" id="slider-alpha" min="0" max="0.1" step="0.002">
+      </label>
+      <label class="settings-label">
+        Velocity decay <span id="slider-velocity-val">0.35</span>
+        <input type="range" id="slider-velocity" min="0" max="1" step="0.05">
+      </label>
+
+      <button id="settings-reset" class="settings-btn">Reset</button>
+    </div>
+  </div>
+
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="graph.js"></script>
 </body>
