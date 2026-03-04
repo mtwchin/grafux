@@ -1,0 +1,51 @@
+# Binaries
+grf
+grf.exe
+grf.darwin
+*.o
+*.a
+*.so
+.DS_Store
+
+# Build artifacts
+/build/
+/dist/
+*.bin
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+
+# OS files
+Thumbs.db
+*.log
+
+# Go-specific
+*.test
+*.out
+coverage.txt
+
+# Local dev files
+.env
+.env.local
+config.local.yml
+
+# Python (for testing/scripting)
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+
+# Node (if using node tooling)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Project-specific
+.grafux.yml.local
+CLAUDE.md

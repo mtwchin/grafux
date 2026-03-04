@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 
 	"grafux/config"
 	"grafux/scanner"
@@ -75,8 +76,8 @@ func Start(port int, graph *scanner.Graph, cfg config.Config) (string, error) {
 
 	addr := fmt.Sprintf("localhost:%d", port)
 	go func() {
-		if err := http.ListenAndServe(addr, mux); err != nil {
-			fmt.Printf("Server error: %v\n", err)
+		if err := http.ListenAndServe(addr, mux); err != nil && err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		}
 	}()
 
