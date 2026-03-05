@@ -79,14 +79,14 @@ const settings = {
   edgeWidth:       1.0,
   labelZoom:       2.0,
   // Physics defaults — overridden by /api/config
-  chargeStrength:  -100,
-  chargeMax:       400,
-  linkDistance:     55,
-  linkStrength:    0.4,
-  centerStrength:  0.05,
+  chargeStrength:  -200,
+  chargeMax:       600,
+  linkDistance:     80,
+  linkStrength:    0.3,
+  centerStrength:  0.02,
   collideStrength: 0.8,
   alphaDecay:      0.02,
-  velocityDecay:   0.35,
+  velocityDecay:   0.4,
   // Layout
   layout:          'force',
 };
@@ -399,9 +399,14 @@ function setupSimulation() {
   const cx = canvas.width / 2;
   const cy = canvas.height / 2;
 
+  // Spread initial positions outward by depth so nodes don't clump at center
+  const maxDepth = graphData.nodes.reduce((m, n) => Math.max(m, n.depth || 0), 1);
   for (const n of graphData.nodes) {
-    n.x = cx + (Math.random() - 0.5) * 30;
-    n.y = cy + (Math.random() - 0.5) * 30;
+    const d = n.depth || 0;
+    const angle = Math.random() * Math.PI * 2;
+    const spread = d * 60 + Math.random() * 40;
+    n.x = cx + Math.cos(angle) * spread;
+    n.y = cy + Math.sin(angle) * spread;
   }
 
   cacheRadii();
@@ -418,6 +423,10 @@ function setupSimulation() {
     .force('collide', d3.forceCollide()
       .radius(d => (d._r || 0) + 5)
       .strength(settings.collideStrength))
+    .force('radial', d3.forceRadial(
+      d => (d.depth || 0) * 70,
+      cx, cy
+    ).strength(0.03))
     .alphaDecay(settings.alphaDecay)
     .velocityDecay(settings.velocityDecay)
     .on('tick', () => {
@@ -447,6 +456,10 @@ function updateSimulationParams() {
   const collideForce = simulation.force('collide');
   if (collideForce) {
     collideForce.strength(settings.collideStrength);
+  }
+  const radialForce = simulation.force('radial');
+  if (radialForce) {
+    radialForce.radius(d => (d.depth || 0) * 70);
   }
   simulation.alphaDecay(settings.alphaDecay);
   simulation.velocityDecay(settings.velocityDecay);
@@ -683,7 +696,7 @@ function onMouseMove(e) {
     const [wx, wy] = screenToSim(mouse.x, mouse.y);
     dragNode.fx = wx;
     dragNode.fy = wy;
-    if (simulation) simulation.alphaTarget(0.3).restart();
+    scheduleRender();
   } else {
     const prev = hoveredNode;
     hoveredNode = findNodeAt(mouse.x, mouse.y);
@@ -702,7 +715,7 @@ function onMouseDown(e) {
     node.fx = node.x;
     node.fy = node.y;
     canvas.style.cursor = 'grabbing';
-    if (simulation) simulation.alphaTarget(0.1).restart();
+    if (simulation) simulation.alphaTarget(0.02).restart();
   }
 }
 
