@@ -879,3 +879,6 @@ async function init() {
 }
 
 init();
+
+// Heartbeat — tells the server this tab is still open (every 3s)
+setInterval(() => fetch('/api/ping').catch(() => {}), 3000);

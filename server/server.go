@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"grafux/config"
 	"grafux/scanner"
@@ -37,33 +39,37 @@ type clientConfig struct {
 	Layout          string  `json:"layout"`
 }
 
-func Start(port int, graph *scanner.Graph, cfg config.Config) (string, error) {
+func Start(port int, graph *scanner.Graph, cfg config.Config) (string, <-chan struct{}, error) {
 	mux := http.NewServeMux()
+
+	// Tab-close detection: frontend sends a heartbeat; if we stop seeing it, signal done.
+	var lastPing atomic.Int64
+	tabClosed := make(chan struct{})
 
 	// Serve embedded frontend
 	webContent, err := fs.Sub(webFS, "web")
 	if err != nil {
-		return "", fmt.Errorf("embed sub: %w", err)
+		return "", nil, fmt.Errorf("embed sub: %w", err)
 	}
 	mux.Handle("/", http.FileServer(http.FS(webContent)))
 
 	// Graph API endpoint — pre-compress for large graphs
 	graphJSON, err := json.Marshal(graph)
 	if err != nil {
-		return "", fmt.Errorf("marshal graph: %w", err)
+		return "", nil, fmt.Errorf("marshal graph: %w", err)
 	}
 
 	var graphGzip []byte
 	var buf bytes.Buffer
 	gz, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
 	if err != nil {
-		return "", fmt.Errorf("gzip writer: %w", err)
+		return "", nil, fmt.Errorf("gzip writer: %w", err)
 	}
 	if _, err := gz.Write(graphJSON); err != nil {
-		return "", fmt.Errorf("gzip write: %w", err)
+		return "", nil, fmt.Errorf("gzip write: %w", err)
 	}
 	if err := gz.Close(); err != nil {
-		return "", fmt.Errorf("gzip close: %w", err)
+		return "", nil, fmt.Errorf("gzip close: %w", err)
 	}
 	graphGzip = buf.Bytes()
 
@@ -77,6 +83,28 @@ func Start(port int, graph *scanner.Graph, cfg config.Config) (string, error) {
 			w.Write(graphJSON)
 		}
 	})
+
+	// Heartbeat endpoint — frontend pings every 3s; used to detect tab close
+	const pingInterval = 3 * time.Second
+	const pingTimeout  = 12 * time.Second
+	mux.HandleFunc("/api/ping", func(w http.ResponseWriter, r *http.Request) {
+		lastPing.Store(time.Now().UnixNano())
+		w.WriteHeader(http.StatusNoContent)
+	})
+	go func() {
+		// Wait until we've seen at least one ping before starting the watchdog.
+		for lastPing.Load() == 0 {
+			time.Sleep(pingInterval)
+		}
+		for {
+			time.Sleep(pingInterval)
+			age := time.Since(time.Unix(0, lastPing.Load()))
+			if age > pingTimeout {
+				close(tabClosed)
+				return
+			}
+		}
+	}()
 
 	// Config API endpoint — exposes server-side settings to the frontend
 	cfgJSON, err := json.Marshal(clientConfig{
@@ -97,7 +125,7 @@ func Start(port int, graph *scanner.Graph, cfg config.Config) (string, error) {
 		Layout:          cfg.Layout,
 	})
 	if err != nil {
-		return "", fmt.Errorf("marshal config: %w", err)
+		return "", nil, fmt.Errorf("marshal config: %w", err)
 	}
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -109,7 +137,7 @@ func Start(port int, graph *scanner.Graph, cfg config.Config) (string, error) {
 	if port == 0 {
 		ln, err := net.Listen("tcp", "localhost:0")
 		if err != nil {
-			return "", fmt.Errorf("find port: %w", err)
+			return "", nil, fmt.Errorf("find port: %w", err)
 		}
 		port = ln.Addr().(*net.TCPAddr).Port
 		ln.Close()
@@ -122,5 +150,5 @@ func Start(port int, graph *scanner.Graph, cfg config.Config) (string, error) {
 		}
 	}()
 
-	return addr, nil
+	return addr, tabClosed, nil
 }

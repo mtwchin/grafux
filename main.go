@@ -6,8 +6,10 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"grafux/config"
 	"grafux/scanner"
@@ -81,7 +83,7 @@ func main() {
 		log.Fatalf("Scan failed: %v", scanErr)
 	}
 
-	addr, startErr := server.Start(port, graph, cfg)
+	addr, tabClosed, startErr := server.Start(port, graph, cfg)
 	if startErr != nil {
 		log.Fatalf("Server failed to start: %v", startErr)
 	}
@@ -96,7 +98,14 @@ func main() {
 		openBrowser(url)
 	}
 
-	select {}
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	select {
+	case <-quit:
+		fmt.Println("\nStopped.")
+	case <-tabClosed:
+		fmt.Println("\nBrowser tab closed. Stopped.")
+	}
 }
 
 func splitExts(s string) []string {
