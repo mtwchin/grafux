@@ -53,42 +53,6 @@ html, body {
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
 
-/* Theme switcher — top-right */
-#theme-switcher {
-  position: fixed;
-  top: 16px;
-  right: 20px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.theme-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  cursor: pointer;
-  opacity: 0.4;
-  border: 1.5px solid transparent;
-  transition: opacity 0.15s, transform 0.15s;
-}
-
-.theme-dot:hover {
-  opacity: 0.85;
-  transform: scale(1.25);
-}
-
-.theme-dot.active {
-  opacity: 1;
-  transform: scale(1.15);
-  border-color: rgba(255, 255, 255, 0.55);
-}
-
-.theme-dot[data-theme="gruvbox"]  { background: #fe8019; }
-.theme-dot[data-theme="obsidian"] { background: #e76f51; }
-.theme-dot[data-theme="forest"]   { background: #52b788; }
-.theme-dot[data-theme="aurora"]   { background: #818cf8; }
-.theme-dot[data-theme="mono"]     { background: #888888; }
 
 /* Help — bottom-center */
 #help {

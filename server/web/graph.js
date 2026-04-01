@@ -99,17 +99,7 @@ function applyTheme(name) {
   document.documentElement.style.setProperty('--bg', activeTheme.bg);
   document.documentElement.style.setProperty('--accent', activeTheme.accent);
   document.body.style.background = activeTheme.bg;
-  document.querySelectorAll('.theme-dot').forEach(d => {
-    d.classList.toggle('active', d.dataset.theme === name);
-  });
-  try { sessionStorage.setItem('grafux-theme', name); } catch (_) {}
   scheduleRender();
-}
-
-function setupThemeSwitcher() {
-  document.querySelectorAll('.theme-dot').forEach(dot => {
-    dot.addEventListener('click', () => applyTheme(dot.dataset.theme));
-  });
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -812,7 +802,6 @@ function setupSettingsPanel() {
 async function init() {
   const statsEl = document.getElementById('stats');
 
-  setupThemeSwitcher();
 
   try {
     // Fetch config and graph in parallel
@@ -846,8 +835,6 @@ async function init() {
     // Update defaultSettings snapshot after server config applied
     Object.assign(defaultSettings, settings);
 
-    // sessionStorage overrides server theme only if user switched themes this session
-    try { themeName = sessionStorage.getItem('grafux-theme') || themeName; } catch (_) {}
     applyTheme(themeName);
 
     if (!graphRes.ok) throw new Error(`HTTP ${graphRes.status}`);
