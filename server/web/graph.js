@@ -79,14 +79,14 @@ const settings = {
   edgeWidth:       1.0,
   labelZoom:       2.0,
   // Physics defaults — overridden by /api/config
-  chargeStrength:  -200,
+  chargeStrength:  -150,
   chargeMax:       600,
   linkDistance:     80,
-  linkStrength:    0.3,
+  linkStrength:    0.25,
   centerStrength:  0.02,
   collideStrength: 0.8,
-  alphaDecay:      0.02,
-  velocityDecay:   0.4,
+  alphaDecay:      0.015,
+  velocityDecay:   0.25,
   // Layout
   layout:          'force',
 };
@@ -118,10 +118,15 @@ const canvas = document.getElementById('graph');
 const ctx = canvas.getContext('2d');
 
 function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
   if (simulation) {
-    simulation.force('center', d3.forceCenter(canvas.width / 2, canvas.height / 2));
+    simulation.force('center', d3.forceCenter(W / 2, H / 2));
     scheduleRender();
   }
 }
@@ -241,8 +246,8 @@ function isSpanningTreeEdge(e) {
 
 // ─── Layout algorithms ───────────────────────────────────────────────────────
 function layoutRadial() {
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
   const nodeMap = new Map();
   for (const n of graphData.nodes) nodeMap.set(n.id, n);
 
@@ -296,7 +301,7 @@ function layoutRadial() {
 }
 
 function layoutTree() {
-  const cx = canvas.width / 2;
+  const cx = window.innerWidth / 2;
   const topY = 80;
   const levelHeight = 70;
   const nodeMap = new Map();
@@ -335,7 +340,7 @@ function layoutTree() {
   for (let d = 0; d < levels.length; d++) {
     if (!levels[d]) continue;
     const count = levels[d].length;
-    const totalWidth = Math.max(count * 30, canvas.width * 0.8);
+    const totalWidth = Math.max(count * 30, window.innerWidth * 0.8);
     const startX = cx - totalWidth / 2;
     const spacing = count > 1 ? totalWidth / (count - 1) : 0;
     for (let i = 0; i < count; i++) {
@@ -386,8 +391,8 @@ function applyLayout(name) {
 
 // ─── Simulation ───────────────────────────────────────────────────────────────
 function setupSimulation() {
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
 
   // Spread initial positions outward by depth so nodes don't clump at center
   const maxDepth = graphData.nodes.reduce((m, n) => Math.max(m, n.depth || 0), 1);
@@ -467,11 +472,15 @@ function scheduleRender() {
 }
 
 function render() {
+  const dpr = window.devicePixelRatio || 1;
   const W = canvas.width;
   const H = canvas.height;
+  const Wl = W / dpr;  // logical width
+  const Hl = H / dpr;  // logical height
   ctx.clearRect(0, 0, W, H);
 
   ctx.save();
+  ctx.scale(dpr, dpr);
   ctx.translate(transform.x, transform.y);
   ctx.scale(transform.k, transform.k);
 
@@ -485,8 +494,8 @@ function render() {
   const pad = 50 / k;
   const vx0 = -transform.x / k - pad;
   const vy0 = -transform.y / k - pad;
-  const vx1 = (W - transform.x) / k + pad;
-  const vy1 = (H - transform.y) / k + pad;
+  const vx1 = (Wl - transform.x) / k + pad;
+  const vy1 = (Hl - transform.y) / k + pad;
 
   function inView(x, y) {
     return x >= vx0 && x <= vx1 && y >= vy0 && y <= vy1;
