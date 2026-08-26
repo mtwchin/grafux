@@ -11,19 +11,31 @@ import (
 	"strings"
 	"syscall"
 
+	"grafux/cli"
 	"grafux/config"
-	"grafux/scanner"
 	"grafux/server"
+	"grafux/store"
 )
 
 func main() {
-	depthFlag      := flag.Int("depth", 5, "Max directory depth (0 = unlimited)")
-	portFlag       := flag.Int("port", 0, "Port to serve on (0 = random available port)")
-	noOpenFlag     := flag.Bool("no-open", false, "Don't auto-open browser")
+	// A verb in the first position means the caller wants data, not a browser.
+	if len(os.Args) > 1 && cli.IsCommand(os.Args[1]) {
+		if err := cli.Run(os.Args[1], os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "grf %s: %v\n", os.Args[1], err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	flag.Usage = usage
+
+	depthFlag := flag.Int("depth", 5, "Max directory depth (0 = unlimited)")
+	portFlag := flag.Int("port", 0, "Port to serve on (0 = random available port)")
+	noOpenFlag := flag.Bool("no-open", false, "Don't auto-open browser")
 	showHiddenFlag := flag.Bool("show-hidden", false, "Include hidden files and folders")
-	themeFlag      := flag.String("theme", "", "UI theme: gruvbox, obsidian, forest, aurora, mono")
-	includeFlag    := flag.String("include", "", "Comma-separated extensions to include (e.g. .go,.md)")
-	excludeFlag    := flag.String("exclude", "", "Comma-separated extensions to exclude (e.g. .log,.tmp)")
+	themeFlag := flag.String("theme", "", "UI theme: gruvbox, obsidian, forest, aurora, mono")
+	includeFlag := flag.String("include", "", "Comma-separated extensions to include (e.g. .go,.md)")
+	excludeFlag := flag.String("exclude", "", "Comma-separated extensions to exclude (e.g. .log,.tmp)")
 	flag.Parse()
 
 	root := "."
@@ -73,14 +85,19 @@ func main() {
 	}
 	cfg.Theme = theme
 
-	graph, scanErr := scanner.Scan(root, scanner.Options{
-		MaxDepth:   depth,
-		ShowHidden: showHidden,
-		Include:    cfg.Include,
-		Exclude:    cfg.Exclude,
-	})
+	cfg.Depth = depth
+	cfg.ShowHidden = showHidden
+
+	graph, stats, scanErr := cli.BuildGraph(root, cfg)
 	if scanErr != nil {
 		log.Fatalf("Scan failed: %v", scanErr)
+	}
+
+	// Leave the graph on disk so `grf query` and any agent can read it without
+	// this server running.
+	savedTo, saveErr := store.Save(root, graph)
+	if saveErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not save graph: %v\n", saveErr)
 	}
 
 	addr, tabClosed, startErr := server.Start(port, graph, cfg)
@@ -90,8 +107,11 @@ func main() {
 
 	url := fmt.Sprintf("http://%s", addr)
 	fmt.Printf("Grafux: %s\n", url)
-	fmt.Printf("  %d files · %d folders · depth %d · theme: %s\n",
-		graph.Meta.TotalFiles, graph.Meta.TotalFolders, depth, cfg.Theme)
+	fmt.Printf("  %d files · %d folders · %d content edges · depth %d · theme: %s\n",
+		graph.Meta.TotalFiles, graph.Meta.TotalFolders, stats.Resolved, depth, cfg.Theme)
+	if savedTo != "" {
+		fmt.Printf("  graph saved to %s\n", savedTo)
+	}
 	fmt.Println("  Press Ctrl+C to stop")
 
 	if !noOpen {
@@ -106,6 +126,20 @@ func main() {
 	case <-tabClosed:
 		fmt.Println("\nBrowser tab closed. Stopped.")
 	}
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, `grf — visualize and query a directory as a graph.
+
+Usage:
+  grf [flags] [path]           Scan a directory and open the graph in a browser
+  grf <command> [args]         Read the graph without a browser
+
+%s
+
+Flags:
+`, cli.Usage())
+	flag.PrintDefaults()
 }
 
 func splitExts(s string) []string {

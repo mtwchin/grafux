@@ -1,5 +1,6 @@
 # Binaries
 grf
+grafux
 grf.exe
 grf.darwin
 *.o
@@ -48,4 +49,6 @@ yarn.lock
 
 # Project-specific
 .grafux.yml.local
+# Generated graph artifact. Delete this line to commit it as a shared map.
+.grafux/
 CLAUDE.md
