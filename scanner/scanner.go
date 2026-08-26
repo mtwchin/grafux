@@ -18,10 +18,16 @@ type Node struct {
 	Size      int64  `json:"size,omitempty"`
 }
 
+// Edge connects two nodes. Type is "structural" for the directory tree, or
+// "import"/"reference" for a relationship read out of a file's contents.
+// Confidence records whether the source named its target unambiguously
+// ("extracted") or the resolver had to choose between candidates ("inferred").
 type Edge struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Type   string `json:"type"`
+	Source     string `json:"source"`
+	Target     string `json:"target"`
+	Type       string `json:"type"`
+	Confidence string `json:"confidence,omitempty"`
+	Line       int    `json:"line,omitempty"`
 }
 
 type Meta struct {
@@ -29,6 +35,7 @@ type Meta struct {
 	TotalFiles   int       `json:"totalFiles"`
 	TotalFolders int       `json:"totalFolders"`
 	ScanDepth    int       `json:"scanDepth"`
+	ContentEdges int       `json:"contentEdges"`
 	ScannedAt    time.Time `json:"scannedAt"`
 }
 
@@ -47,6 +54,7 @@ type Options struct {
 
 var defaultIgnore = map[string]bool{
 	".git":          true,
+	".grafux":       true,
 	"node_modules":  true,
 	"__pycache__":   true,
 	".DS_Store":     true,

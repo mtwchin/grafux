@@ -10,6 +10,7 @@ const THEMES = {
     edge:          'rgba(146,131,116,0.25)',
     edgeHover:     'rgba(235,219,178,0.75)',
     edgeDim:       'rgba(146,131,116,0.05)',
+    contentEdge:   'rgba(131,165,152,0.55)',
     hoverRing:     'rgba(250,189,47,0.5)',
     label:         'rgba(235,219,178,1)',
     labelNeighbor: 'rgba(235,219,178,0.65)',
@@ -23,6 +24,7 @@ const THEMES = {
     edge:          'rgba(255,255,255,0.18)',
     edgeHover:     'rgba(255,255,255,0.65)',
     edgeDim:       'rgba(255,255,255,0.05)',
+    contentEdge:   'rgba(122,162,247,0.5)',
     hoverRing:     'rgba(255,255,255,0.55)',
     label:         'rgba(255,255,255,1)',
     labelNeighbor: 'rgba(255,255,255,0.6)',
@@ -36,6 +38,7 @@ const THEMES = {
     edge:          'rgba(149,213,178,0.2)',
     edgeHover:     'rgba(149,213,178,0.7)',
     edgeDim:       'rgba(149,213,178,0.04)',
+    contentEdge:   'rgba(244,211,94,0.5)',
     hoverRing:     'rgba(149,213,178,0.6)',
     label:         'rgba(210,240,220,1)',
     labelNeighbor: 'rgba(210,240,220,0.65)',
@@ -49,6 +52,7 @@ const THEMES = {
     edge:          'rgba(196,181,253,0.18)',
     edgeHover:     'rgba(196,181,253,0.7)',
     edgeDim:       'rgba(196,181,253,0.04)',
+    contentEdge:   'rgba(244,114,182,0.5)',
     hoverRing:     'rgba(196,181,253,0.6)',
     label:         'rgba(230,225,255,1)',
     labelNeighbor: 'rgba(230,225,255,0.65)',
@@ -62,6 +66,7 @@ const THEMES = {
     edge:          'rgba(255,255,255,0.14)',
     edgeHover:     'rgba(255,255,255,0.6)',
     edgeDim:       'rgba(255,255,255,0.03)',
+    contentEdge:   'rgba(255,255,255,0.42)',
     hoverRing:     'rgba(255,255,255,0.5)',
     label:         'rgba(255,255,255,1)',
     labelNeighbor: 'rgba(255,255,255,0.55)',
@@ -203,6 +208,7 @@ function isConnected(a, b) {
 
 // ─── Spanning Tree (Kruskal's) ────────────────────────────────────────────────
 let spanningTreeEdges = null; // Set of "srcId|tgtId" keys when active
+let showContentEdges = true;  // content edges are on by default
 
 function computeSpanningTree() {
   // Union-Find
@@ -235,6 +241,17 @@ function computeSpanningTree() {
     }
   }
   return treeEdges;
+}
+
+// Content edges come from inside files (imports, links); structural edges are
+// the directory tree. They are drawn differently because they mean different
+// things.
+function isContentEdge(e) {
+  return e.type !== undefined && e.type !== 'structural';
+}
+
+function skipEdge(e) {
+  return !showContentEdges && isContentEdge(e);
 }
 
 function isSpanningTreeEdge(e) {
@@ -518,6 +535,7 @@ function render() {
     for (const e of graphData.edges) {
       const src = e.source, tgt = e.target;
       if (src.x === undefined || tgt.x === undefined) continue;
+      if (skipEdge(e)) continue;
       if (!edgeInView(src.x, src.y, tgt.x, tgt.y)) continue;
       if (src === hoveredNode || tgt === hoveredNode) continue;
       ctx.moveTo(src.x, src.y);
@@ -531,6 +549,7 @@ function render() {
     for (const e of graphData.edges) {
       const src = e.source, tgt = e.target;
       if (src.x === undefined || tgt.x === undefined) continue;
+      if (skipEdge(e)) continue;
       if (src !== hoveredNode && tgt !== hoveredNode) continue;
       ctx.moveTo(src.x, src.y);
       ctx.lineTo(tgt.x, tgt.y);
@@ -544,6 +563,7 @@ function render() {
     for (const e of graphData.edges) {
       const src = e.source, tgt = e.target;
       if (src.x === undefined || tgt.x === undefined) continue;
+      if (skipEdge(e)) continue;
       if (!edgeInView(src.x, src.y, tgt.x, tgt.y)) continue;
       if (isSpanningTreeEdge(e)) continue;
       ctx.moveTo(src.x, src.y);
@@ -565,18 +585,35 @@ function render() {
     }
     ctx.stroke();
   } else {
-    // Single batch — all edges same style
+    // Structural edges — the directory tree, drawn quietly underneath.
     ctx.beginPath();
     ctx.strokeStyle = activeTheme.edge;
     ctx.lineWidth = (0.8 * ew) / k;
     for (const e of graphData.edges) {
       const src = e.source, tgt = e.target;
       if (src.x === undefined || tgt.x === undefined) continue;
+      if (isContentEdge(e)) continue;
       if (!edgeInView(src.x, src.y, tgt.x, tgt.y)) continue;
       ctx.moveTo(src.x, src.y);
       ctx.lineTo(tgt.x, tgt.y);
     }
     ctx.stroke();
+
+    // Content edges — imports and links read out of the files themselves.
+    if (showContentEdges) {
+      ctx.beginPath();
+      ctx.strokeStyle = activeTheme.contentEdge || activeTheme.edgeHover;
+      ctx.lineWidth = (1.3 * ew) / k;
+      for (const e of graphData.edges) {
+        const src = e.source, tgt = e.target;
+        if (src.x === undefined || tgt.x === undefined) continue;
+        if (!isContentEdge(e)) continue;
+        if (!edgeInView(src.x, src.y, tgt.x, tgt.y)) continue;
+        ctx.moveTo(src.x, src.y);
+        ctx.lineTo(tgt.x, tgt.y);
+      }
+      ctx.stroke();
+    }
   }
 
   // ── Nodes ──────────────────────────────────────────────────────────────────
@@ -797,6 +834,15 @@ function setupSettingsPanel() {
     pill.addEventListener('click', () => applyLayout(pill.dataset.layout));
   });
 
+  // Content edge checkbox
+  const ceCheck = document.getElementById('content-edge-toggle');
+  if (ceCheck) {
+    ceCheck.addEventListener('change', () => {
+      showContentEdges = ceCheck.checked;
+      scheduleRender();
+    });
+  }
+
   // Spanning tree checkbox
   const stCheck = document.getElementById('spanning-tree-toggle');
   if (stCheck) {
@@ -856,7 +902,8 @@ async function init() {
 
     const m = graphData.meta || {};
     const depthStr = m.scanDepth > 0 ? `depth ${m.scanDepth}` : 'unlimited depth';
-    statsEl.textContent = `${m.totalFiles || 0} files · ${m.totalFolders || 0} folders · ${depthStr}`;
+    const contentStr = m.contentEdges ? ` · ${m.contentEdges} links` : '';
+    statsEl.textContent = `${m.totalFiles || 0} files · ${m.totalFolders || 0} folders${contentStr} · ${depthStr}`;
 
     setupSimulation();
     setupInteractions();
