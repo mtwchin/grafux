@@ -51,3 +51,4 @@ yarn.lock
 .grafux.yml.local
 # Generated graph artifact. Delete this line to commit it as a shared map.
 .grafux/
+CLAUDE.md

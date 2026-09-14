@@ -93,7 +93,7 @@ grafux/
 │       ├── style.css        # Dark theme
 │       └── graph.js         # d3-force simulation + canvas renderer
 ├── go.mod
-└── AGENTS.md
+└── CLAUDE.md
 ```
 
 **Dependencies:** Go stdlib + gopkg.in/yaml.v3 (config only). d3 v7 from CDN at
