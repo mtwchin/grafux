@@ -3,88 +3,93 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Grafux</title>
+  <meta name="theme-color" content="#141618">
+  <title>Grafux · Project graph</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23141618'/%3E%3Cpath d='M9 9L23 16L9 24Z' fill='none' stroke='%23eab775' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <canvas id="graph"></canvas>
-
-  <div id="hud">
-    <div id="title">grafux</div>
-    <div id="stats">Loading...</div>
-  </div>
-
-  <div id="help">
-    scroll · zoom &nbsp;|&nbsp; drag · pan &nbsp;|&nbsp; hover · highlight
-  </div>
-
-  <!-- Settings toggle button -->
-  <button id="settings-toggle" title="Settings">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-      <circle cx="8" cy="8" r="2.5"/>
-      <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.17 3.17l1.42 1.42M11.41 11.41l1.42 1.42M3.17 12.83l1.42-1.42M11.41 4.59l1.42-1.42"/>
-    </svg>
-  </button>
-
-  <!-- Settings panel -->
-  <div id="settings-panel">
-    <div class="settings-section">
-      <div class="settings-heading">Layout</div>
-      <div class="layout-pills">
-        <button class="layout-pill active" data-layout="force">Force</button>
-        <button class="layout-pill" data-layout="radial">Radial</button>
-        <button class="layout-pill" data-layout="tree">Tree</button>
-      </div>
-      <label class="settings-check">
-        <input type="checkbox" id="content-edge-toggle" checked>
-        <span>Content edges</span>
-      </label>
-      <label class="settings-check">
-        <input type="checkbox" id="spanning-tree-toggle">
-        <span>Spanning tree</span>
-      </label>
+  <canvas id="graph" aria-label="Interactive directory graph. Use search to find and inspect files."></canvas>
+  <aside class="sidebar" aria-label="Project explorer">
+    <a class="brand" href="/" aria-label="Grafux home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 8L25 15L11 25Z"/><circle cx="8" cy="8" r="3"/><circle cx="25" cy="15" r="3"/><circle cx="11" cy="25" r="3"/></svg>
+      <span>grafux<span class="brand-dot">.</span></span>
+      <span class="brand-tag">EXPLORER</span>
+    </a>
+    <section class="project-summary">
+      <div class="eyebrow">YOUR WORKSPACE</div>
+      <h1 id="project-name">Project graph</h1>
+      <p id="project-path" class="project-path">Discover how it all connects.</p>
+      <div class="metrics"><div><strong id="file-count">—</strong><span>files</span></div><div><strong id="folder-count">—</strong><span>folders</span></div><div><strong id="link-count">—</strong><span>links</span></div></div>
+    </section>
+    <div class="search-wrap">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
+      <input id="search" type="search" placeholder="Find a file or folder…" aria-label="Find a file or folder" autocomplete="off" spellcheck="false">
+      <kbd>/</kbd>
     </div>
-
-    <div class="settings-section">
-      <div class="settings-heading">Physics</div>
-
+    <section class="explorer">
+      <div class="section-heading"><span id="results-heading">PROJECT FILES</span><span id="result-count"></span></div>
+      <div id="search-results" aria-label="Files and folders"></div>
+    </section>
+    <section id="node-details" class="node-details" hidden aria-label="Selected node details">
+      <div class="section-heading"><span id="detail-kind">FILE DETAILS</span><button id="clear-selection" class="icon-button" aria-label="Clear selection">×</button></div>
+      <h2 id="detail-name"></h2><p id="detail-path"></p><div id="detail-meta"></div>
+    </section>
+    <div class="sidebar-footer"><span class="status-dot"></span><span id="stats" role="status">Loading your graph…</span></div>
+  </aside>
+  <header class="graph-header">
+    <div><div class="eyebrow">A DIFFERENT PERSPECTIVE</div><h2>Your project, connected<span>.</span></h2></div>
+    <button id="settings-toggle" class="surface-button" aria-label="Graph settings" aria-controls="settings-panel" aria-expanded="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 14h14"/><circle cx="7" cy="6" r="2"/><circle cx="13" cy="14" r="2"/></svg><span>Customize</span></button>
+  </header>
+  <div class="graph-caption"><span class="status-dot"></span> LOCAL GRAPH <span class="caption-divider">/</span> <span id="layout-caption">FORCE LAYOUT</span></div>
+  <div id="empty-state" class="empty-state" hidden><h2 id="empty-title">Nothing here yet</h2><p id="empty-message">Try scanning a directory with files to explore.</p></div>
+  <div class="legend" aria-label="Graph legend"><span><i class="legend-folder"></i>Folders</span><span><i class="legend-file"></i>Files</span><span><i class="legend-link"></i>Content links</span></div>
+  <footer class="graph-footer">
+    <div id="help"><span>Scroll to zoom</span><span>Drag to explore</span><span>Click to inspect</span></div>
+    <div class="view-controls" aria-label="Graph view controls"><button id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button><output id="zoom-level" aria-label="Zoom level">100%</output><button id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button><span></span><button id="fit-view" aria-label="Fit graph to view" title="Fit graph to view (F)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button></div>
+  </footer>
+  <section id="settings-panel" aria-label="Graph settings" inert>
+    <div class="panel-heading"><h2>Make it yours</h2><button id="settings-close" class="icon-button" aria-label="Close settings">×</button></div>
+    <p class="panel-description">A little order. A little exploration.</p>
+    <div class="settings-section"><div class="settings-heading">Layout</div><div class="layout-pills"><button class="layout-pill active" data-layout="force" aria-pressed="true">Force</button><button class="layout-pill" data-layout="radial" aria-pressed="false">Radial</button><button class="layout-pill" data-layout="tree" aria-pressed="false">Tree</button></div></div>
+    <div class="settings-section"><label class="settings-heading" for="theme-select">Palette</label><select id="theme-select"><option value="gruvbox">Ember · warm & understated</option><option value="obsidian">Obsidian · blue hour</option><option value="forest">Forest · evergreen</option><option value="aurora">Aurora · violet sky</option><option value="mono">Mono · essentials</option></select></div>
+    <div class="settings-section"><div class="settings-heading">Connections</div><label class="settings-check"><span>Content links</span><input type="checkbox" id="content-edge-toggle" checked></label><label class="settings-check"><span>Spanning tree</span><input type="checkbox" id="spanning-tree-toggle"></label></div>
+    <details class="settings-section"><summary>Fine-tune physics</summary><div class="physics-controls">
       <label class="settings-label">
-        Charge <span id="slider-charge-val">-100</span>
+        Repulsion <span id="slider-charge-val">-100</span>
         <input type="range" id="slider-charge" min="-500" max="0" step="5">
       </label>
       <label class="settings-label">
-        Charge max <span id="slider-chargemax-val">400</span>
+        Repulsion distance <span id="slider-chargemax-val">400</span>
         <input type="range" id="slider-chargemax" min="50" max="1500" step="10">
       </label>
       <label class="settings-label">
-        Link dist <span id="slider-linkdist-val">55</span>
+        Link distance <span id="slider-linkdist-val">55</span>
         <input type="range" id="slider-linkdist" min="10" max="200" step="5">
       </label>
       <label class="settings-label">
-        Link str <span id="slider-linkstr-val">0.4</span>
+        Link strength <span id="slider-linkstr-val">0.4</span>
         <input type="range" id="slider-linkstr" min="0" max="2" step="0.05">
       </label>
       <label class="settings-label">
-        Center <span id="slider-center-val">0.05</span>
+        Center gravity <span id="slider-center-val">0.05</span>
         <input type="range" id="slider-center" min="0" max="0.5" step="0.01">
       </label>
       <label class="settings-label">
-        Collide <span id="slider-collide-val">0.8</span>
+        Collision <span id="slider-collide-val">0.8</span>
         <input type="range" id="slider-collide" min="0" max="1" step="0.05">
       </label>
       <label class="settings-label">
-        Alpha decay <span id="slider-alpha-val">0.02</span>
+        Settling speed <span id="slider-alpha-val">0.02</span>
         <input type="range" id="slider-alpha" min="0" max="0.1" step="0.002">
       </label>
       <label class="settings-label">
-        Velocity decay <span id="slider-velocity-val">0.35</span>
+        Friction <span id="slider-velocity-val">0.35</span>
         <input type="range" id="slider-velocity" min="0" max="1" step="0.05">
       </label>
 
-      <button id="settings-reset" class="settings-btn">Reset</button>
-    </div>
-  </div>
-
+<button id="settings-reset" class="settings-btn">Reset physics</button></div></details>
+  </section>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="graph.js"></script>
 </body>
